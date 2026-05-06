@@ -10,6 +10,15 @@ dependencies:
   flutter:
     sdk: flutter
 
+  flutter_localizations:
+    sdk: flutter
+
+  # Accès contacts téléphone (Android/iOS uniquement)
+  flutter_contacts: ^1.1.9+1
+
+  # Permissions
+  permission_handler: ^11.3.1
+
   # Supabase
   supabase_flutter: ^2.3.4
 
@@ -29,7 +38,7 @@ dependencies:
   shimmer: ^3.0.0          # skeleton loading screens
 
   # Utilitaires
-  intl: ^0.19.0
+  intl: 0.20.2
   uuid: ^4.3.3
   shared_preferences: ^2.2.3
   flutter_dotenv: ^5.1.0

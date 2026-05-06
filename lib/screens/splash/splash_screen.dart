@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -13,61 +14,64 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _navigateToNext();
+    _redirect();
   }
 
-  void _navigateToNext() async {
+  Future<void> _redirect() async {
+    // Attendre que Flutter soit prêt
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    if (!mounted) return;
+
+    // Écouter le premier événement de session
+    final subscription = Supabase.instance.client.auth.onAuthStateChange
+        .listen((data) {
+      if (!mounted) return;
+
+      final session = data.session;
+      if (session != null) {
+        context.go('/home');
+      } else {
+        context.go('/auth');
+      }
+    });
+
+    // Timeout de sécurité — si aucun événement après 3s, aller vers auth
     await Future.delayed(const Duration(seconds: 3));
-    if (mounted) {
-      context.go('/onboarding');
-    }
+    subscription.cancel();
+
+    if (!mounted) return;
+    final session = Supabase.instance.client.auth.currentSession;
+    context.go(session != null ? '/home' : '/auth');
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.secondary,
+    return const Scaffold(
+      backgroundColor: primaryGreen,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withOpacity(0.3),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.solar_power_rounded,
-                size: 64,
-                color: AppColors.primary,
-              ),
-            ),
-            const SizedBox(height: 32),
+            Icon(Icons.solar_power, size: 80, color: Colors.white),
+            SizedBox(height: 16),
             Text(
               'CoopEnergie',
-              style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                    color: Colors.white,
-                    letterSpacing: 1.2,
-                  ),
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 8),
             Text(
-              'L\'énergie solaire collective',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.white.withOpacity(0.8),
-                  ),
+              'Coopératives solaires transparentes',
+              style: TextStyle(fontSize: 16, color: Colors.white70),
             ),
-            const SizedBox(height: 64),
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+            SizedBox(height: 48),
+            CircularProgressIndicator(
+              color: Colors.white,
+              strokeWidth: 2,
             ),
           ],
         ),

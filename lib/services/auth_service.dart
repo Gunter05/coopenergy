@@ -8,6 +8,8 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
 });
 
 final currentUserProvider = Provider<User?>((ref) {
+  // Écoute les changements d'auth et se reconstruit automatiquement
+  ref.watch(authStateProvider);
   return supabase.auth.currentUser;
 });
 
@@ -29,12 +31,25 @@ class AuthService {
     required String email,
     required String password,
     required String displayName,
+    String? phone,
   }) async {
     final response = await supabase.auth.signUp(
       email: email,
       password: password,
-      data: {'full_name': displayName},
+      data: {
+        'full_name': displayName,
+        if (phone != null && phone.isNotEmpty) 'phone': phone,
+      },
     );
+
+    // Mettre à jour le profil avec le numéro si fourni
+    if (response.user != null && phone != null && phone.isNotEmpty) {
+      await supabase
+          .from('profiles')
+          .update({'phone': phone, 'display_name': displayName}).eq(
+              'id', response.user!.id);
+    }
+
     return response;
   }
 

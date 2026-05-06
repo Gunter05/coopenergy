@@ -23,6 +23,11 @@ class AppColors {
   static const Color info = Color(0xFF3B82F6);
 }
 
+const Color primaryGreen = AppColors.primary;
+const Color lightGreen = Color(0xFFE8F5E9);
+const Color accentGreen = Color(0xFF81C784);
+const Color darkText = AppColors.textMain;
+
 final appTheme = ThemeData(
   useMaterial3: true,
   brightness: Brightness.light,
@@ -79,7 +84,7 @@ final appTheme = ThemeData(
       backgroundColor: AppColors.primary,
       foregroundColor: Colors.white,
       elevation: 0,
-      minimumSize: const Size(double.infinity, 56),
+      minimumSize: const Size(64, 56), // Width can be smaller if constrained
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
@@ -93,7 +98,7 @@ final appTheme = ThemeData(
     style: OutlinedButton.styleFrom(
       foregroundColor: AppColors.primary,
       side: const BorderSide(color: AppColors.primary),
-      minimumSize: const Size(double.infinity, 56),
+      minimumSize: const Size(64, 56), // Width can be smaller if constrained
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),

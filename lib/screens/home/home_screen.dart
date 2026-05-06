@@ -1,331 +1,628 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import '../../core/theme.dart';
-import '../../widgets/cooperative_card.dart';
-import '../../widgets/progress_bar.dart';
+import '../../services/auth_service.dart';
+import '../../services/cooperative_service.dart';
+import '../../models/cooperative.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user      = ref.watch(currentUserProvider);
+    final coopsAsync = ref.watch(myCooperativesProvider);
+    final statsAsync = ref.watch(dashboardStatsProvider);
+    final activityAsync = ref.watch(recentActivityProvider);
+
+    final firstName = user?.userMetadata?['full_name']
+            ?.toString()
+            .split(' ')
+            .first ??
+        user?.email?.split(' @').first ??
+        'là';
+
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 120.0,
-            floating: false,
-            pinned: true,
-            backgroundColor: AppColors.secondary,
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                'Salut, Koffi ! 👋',
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      color: Colors.white,
-                    ),
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: _buildAppBar(context, ref),
+      body: RefreshIndicator(
+        color: primaryGreen,
+        onRefresh: () async {
+          ref.invalidate(myCooperativesProvider);
+          ref.invalidate(dashboardStatsProvider);
+          ref.invalidate(recentActivityProvider);
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // Salutation
+              _buildGreeting(firstName),
+              const SizedBox(height: 20),
+
+              // KPI Stats
+              statsAsync.when(
+                data:    (stats) => _buildStatsRow(stats),
+                loading: () => _buildStatsLoading(),
+                error:   (_, __) => const SizedBox(),
               ),
-              background: Container(color: AppColors.secondary),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none_rounded, color: Colors.white),
-                onPressed: () {},
+              const SizedBox(height: 24),
+
+              // Boutons rapides
+              _buildQuickActions(context),
+              const SizedBox(height: 24),
+
+              // Mes coopératives
+              _buildSectionTitle('Mes coopératives'),
+              const SizedBox(height: 12),
+              coopsAsync.when(
+                data: (coops) => coops.isEmpty
+                    ? _buildEmptyCoops(context)
+                    : _buildCoopsList(context, coops),
+                loading: () => _buildCoopsLoading(),
+                error: (e, _) => _buildError(e.toString()),
               ),
-              IconButton(
-                icon: const Icon(Icons.account_circle_outlined, color: Colors.white),
-                onPressed: () => context.push('/profile'),
+              const SizedBox(height: 24),
+
+              // Activité récente
+              _buildSectionTitle('Activité récente'),
+              const SizedBox(height: 12),
+              activityAsync.when(
+                data:    (activity) => activity.isEmpty
+                    ? _buildEmptyActivity()
+                    : _buildActivityList(activity),
+                loading: () => _buildActivityLoading(),
+                error:   (_, __) => const SizedBox(),
               ),
+
+              const SizedBox(height: 80),
             ],
           ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSummaryCard(context),
-                  const SizedBox(height: 32),
-                  _buildQuickActions(context),
-                  const SizedBox(height: 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Vos Coopératives',
-                        style: Theme.of(context).textTheme.displaySmall,
-                      ),
-                      TextButton(
-                        onPressed: () => context.push('/cooperatives'),
-                        child: const Text('Voir tout'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  CooperativeCard(
-                    name: 'Solaire Miabe J1',
-                    objective: 'Installation de 50 panneaux solaires pour le quartier.',
-                    collectedAmount: 750000,
-                    targetAmount: 1000000,
-                    memberCount: 42,
-                    status: 'Actif',
-                    onTap: () => context.push('/cooperative/1'),
-                  ),
-                  const SizedBox(height: 32),
-                  Text(
-                    'Activités Récentes',
-                    style: Theme.of(context).textTheme.displaySmall,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildActivityList(context),
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: 0,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textSecondary,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Accueil'),
-          BottomNavigationBarItem(icon: Icon(Icons.groups_rounded), label: 'Coops'),
-          BottomNavigationBarItem(icon: Icon(Icons.how_to_vote_rounded), label: 'Votes'),
-          BottomNavigationBarItem(icon: Icon(Icons.description_rounded), label: 'Rapports'),
-        ],
-        onTap: (index) {
-          switch (index) {
-            case 1:
-              context.push('/cooperatives');
-              break;
-            case 2:
-              context.push('/votes');
-              break;
-            case 3:
-              context.push('/reports');
-              break;
-          }
-        },
+
+      // FAB — Créer une coopérative
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => context.push('/cooperative/create'),
+        backgroundColor: primaryGreen,
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text(
+          'Nouvelle coopérative',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
 
-  Widget _buildSummaryCard(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.secondary, Color(0xFF2C5385)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  // ── AppBar ────────────────────────────────────────────
+
+  AppBar _buildAppBar(BuildContext context, WidgetRef ref) {
+    return AppBar(
+      backgroundColor: primaryGreen,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      title: Row(
+        children: [
+          const Icon(Icons.solar_power, size: 24),
+          const SizedBox(width: 8),
+          const Text(
+            'CoopEnergie',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+          ),
+        ],
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined),
+          onPressed: () {},
         ),
-        borderRadius: BorderRadius.circular(24),
+        IconButton(
+          icon: const Icon(Icons.logout),
+          tooltip: 'Se déconnecter',
+          onPressed: () async {
+            await ref.read(authServiceProvider).signOut();
+            if (context.mounted) context.go('/auth');
+          },
+        ),
+      ],
+    );
+  }
+
+  // ── Salutation ────────────────────────────────────────
+
+  Widget _buildGreeting(String firstName) {
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Bonjour'
+        : hour < 18
+            ? 'Bon après-midi'
+            : 'Bonsoir';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$greeting, $firstName 👋',
+          style: const TextStyle(
+            fontSize: 24, fontWeight: FontWeight.bold,
+            color: darkText,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          DateFormat('EEEE d MMMM yyyy', 'fr_FR').format(DateTime.now()),
+          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+        ),
+      ],
+    );
+  }
+
+  // ── Stats KPI ─────────────────────────────────────────
+
+  Widget _buildStatsRow(Map<String, dynamic> stats) {
+    final fmt = NumberFormat('#,##0', 'fr_FR');
+    return Row(
+      children: [
+        Expanded(child: _buildStatCard(
+          icon: Icons.savings_outlined,
+          label: 'Total cotisé',
+          value: '${fmt.format(stats['total_contributed'] ?? 0)} F',
+          color: primaryGreen,
+        )),
+        const SizedBox(width: 12),
+        Expanded(child: _buildStatCard(
+          icon: Icons.groups_outlined,
+          label: 'Coopératives',
+          value: '${stats['active_coops'] ?? 0}',
+          color: const Color(0xFF0D47A1),
+        )),
+        const SizedBox(width: 12),
+        Expanded(child: _buildStatCard(
+          icon: Icons.how_to_vote_outlined,
+          label: 'Votes ouverts',
+          value: '${stats['pending_votes'] ?? 0}',
+          color: const Color(0xFFE65100),
+        )),
+      ],
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: AppColors.secondary.withOpacity(0.3),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8, offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Solde Collecté Global',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white.withOpacity(0.8),
-                ),
-          ),
+          Icon(icon, color: color, size: 24),
           const SizedBox(height: 8),
           Text(
-            '1 250 000 XOF',
-            style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                  color: Colors.white,
-                  fontSize: 28,
-                ),
+            value,
+            style: TextStyle(
+              fontSize: 18, fontWeight: FontWeight.bold, color: color,
+            ),
           ),
-          const SizedBox(height: 24),
-          const ProgressBar(
-            progress: 0.65,
-            label: null,
-            trailing: '65% de l\'objectif',
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildSummaryItem(context, 'Investi', '850K XOF'),
-              _buildSummaryItem(context, 'Impact', '+15kW'),
-            ],
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryItem(BuildContext context, String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Colors.white.withOpacity(0.6),
-              ),
+  Widget _buildStatsLoading() {
+    return Row(
+      children: List.generate(3, (i) => Expanded(
+        child: Container(
+          margin: EdgeInsets.only(right: i < 2 ? 12 : 0),
+          height: 90,
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-        ),
-      ],
+      )),
     );
   }
+
+  // ── Boutons rapides ───────────────────────────────────
 
   Widget _buildQuickActions(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: _QuickActionBtn(
-            icon: Icons.add_circle_outline_rounded,
-            label: 'Cotiser',
-            color: AppColors.primary,
-            onTap: () => context.push('/contribute'),
-          ),
+        _buildActionChip(
+          icon: Icons.add_card,
+          label: 'Cotiser',
+          onTap: () => context.push('/contribute'),
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _QuickActionBtn(
-            icon: Icons.how_to_vote_rounded,
-            label: 'Voter',
-            color: AppColors.accent,
-            onTap: () => context.push('/votes'),
-          ),
+        const SizedBox(width: 10),
+        _buildActionChip(
+          icon: Icons.how_to_vote,
+          label: 'Voter',
+          onTap: () => context.push('/vote'),
+        ),
+        const SizedBox(width: 10),
+        _buildActionChip(
+          icon: Icons.assessment_outlined,
+          label: 'Rapport',
+          onTap: () => context.push('/report'),
         ),
       ],
     );
   }
 
-  Widget _buildActivityList(BuildContext context) {
-    final activities = [
-      {'title': 'Cotisation reçue', 'desc': 'Coop Miabe J1', 'amount': '+5 000 XOF', 'date': 'Hier'},
-      {'title': 'Vote terminé', 'desc': 'Achat Panneaux LG', 'amount': 'Validé', 'date': '2 fév.'},
-      {'title': 'Nouveau membre', 'desc': 'Awa D. a rejoint', 'amount': '', 'date': '1 fév.'},
-    ];
+  Widget _buildActionChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: lightGreen,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: accentGreen.withOpacity(0.3)),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, color: primaryGreen, size: 22),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12, fontWeight: FontWeight.w600,
+                  color: primaryGreen,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-    return Column(
-      children: activities.map((activity) {
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12.0),
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.surface),
+  // ── Liste coopératives ────────────────────────────────
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18, fontWeight: FontWeight.bold, color: darkText,
+      ),
+    );
+  }
+
+  Widget _buildCoopsList(BuildContext context, List<Cooperative> coops) {
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: coops.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (_, i) => _buildCoopCard(context, coops[i]),
+    );
+  }
+
+  Widget _buildCoopCard(BuildContext context, Cooperative coop) {
+    final fmt = NumberFormat('#,##0', 'fr_FR');
+    final progress = (coop.progressPercent / 100).clamp(0.0, 1.0);
+
+    return GestureDetector(
+      onTap: () => context.push('/cooperative/${coop.id}'),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8, offset: const Offset(0, 2),
             ),
-            child: Row(
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            // Header
+            Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  width: 44, height: 44,
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    shape: BoxShape.circle,
+                    color: lightGreen,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(
-                    activity['title'] == 'Cotisation reçue'
-                        ? Icons.add_rounded
-                        : Icons.info_outline_rounded,
-                    color: AppColors.primary,
-                    size: 20,
+                  child: const Icon(
+                    Icons.solar_power, color: primaryGreen, size: 24,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        activity['title'] as String,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
+                        coop.name,
+                        style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold,
+                          color: darkText,
+                        ),
                       ),
                       Text(
-                        activity['desc'] as String,
-                        style: Theme.of(context).textTheme.labelSmall,
+                        '${coop.memberCount} membres · '
+                        '${coop.contributionCount} cotisations',
+                        style: TextStyle(
+                          fontSize: 12, color: Colors.grey[600],
+                        ),
                       ),
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      activity['amount'] as String,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
-                          ),
-                    ),
-                    Text(
-                      activity['date'] as String,
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ],
+                _buildStatusBadge(coop.status),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Barre de progression
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 8,
+                backgroundColor: Colors.grey[200],
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  progress >= 1.0 ? Colors.green : primaryGreen,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // Montants
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '${fmt.format(coop.currentAmount)} FCFA',
+                  style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.bold,
+                    color: primaryGreen,
+                  ),
+                ),
+                Text(
+                  '${coop.progressPercent.toStringAsFixed(1)} % '
+                  'sur ${fmt.format(coop.goalAmount)} FCFA',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
               ],
             ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
 
-class _QuickActionBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-
-  const _QuickActionBtn({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.2)),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 32),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: color,
+            // Deadline si elle existe
+            if (coop.deadline != null) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Icon(
+                    Icons.calendar_today_outlined,
+                    size: 12,
+                    color: coop.isDeadlinePassed
+                        ? Colors.red
+                        : Colors.grey[500],
                   ),
-            ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Échéance : ${DateFormat('d MMM yyyy', 'fr_FR')
+                        .format(coop.deadline!)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: coop.isDeadlinePassed
+                          ? Colors.red
+                          : Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    final config = {
+      'active':    {'label': 'Actif',    'color': primaryGreen},
+      'completed': {'label': 'Complété', 'color': const Color(0xFF0D47A1)},
+      'cancelled': {'label': 'Annulé',   'color': Colors.red},
+    };
+    final c = config[status] ?? {'label': status, 'color': Colors.grey};
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: (c['color'] as Color).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        c['label'] as String,
+        style: TextStyle(
+          fontSize: 11, fontWeight: FontWeight.bold,
+          color: c['color'] as Color,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyCoops(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.solar_power_outlined,
+              size: 56, color: Colors.grey[300]),
+          const SizedBox(height: 16),
+          const Text(
+            'Aucune coopérative pour l\'instant',
+            style: TextStyle(
+              fontSize: 16, fontWeight: FontWeight.bold, color: darkText,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Crée ta première coopérative ou rejoins\nun groupe existant.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () => context.push('/cooperative/create'),
+            icon: const Icon(Icons.add),
+            label: const Text('Créer une coopérative'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoopsLoading() {
+    return Column(
+      children: List.generate(2, (i) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        height: 140,
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          borderRadius: BorderRadius.circular(18),
+        ),
+      )),
+    );
+  }
+
+  // ── Activité récente ──────────────────────────────────
+
+  Widget _buildActivityList(List<Map<String, dynamic>> activity) {
+    final fmt = NumberFormat('#,##0', 'fr_FR');
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: activity.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 60),
+        itemBuilder: (_, i) {
+          final item = activity[i];
+          final amount = (item['amount'] as num).toDouble();
+          final date = DateTime.parse(item['created_at']);
+          final coopName = item['cooperatives']?['name'] ?? 'Coopérative';
+
+          return ListTile(
+            leading: Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: lightGreen,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.arrow_upward, color: primaryGreen, size: 20,
+              ),
+            ),
+            title: Text(
+              'Cotisation — $coopName',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              DateFormat('d MMM yyyy · HH:mm', 'fr_FR').format(date),
+              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+            ),
+            trailing: Text(
+              '+${fmt.format(amount)} F',
+              style: const TextStyle(
+                fontSize: 14, fontWeight: FontWeight.bold,
+                color: primaryGreen,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildEmptyActivity() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Center(
+        child: Text(
+          'Aucune activité récente.',
+          style: TextStyle(color: Colors.grey[500], fontSize: 14),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActivityLoading() {
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(18),
+      ),
+    );
+  }
+
+  Widget _buildError(String message) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFEBEE),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFB71C1C)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Color(0xFFB71C1C)),
+            ),
+          ),
+        ],
       ),
     );
   }
