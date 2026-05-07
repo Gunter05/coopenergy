@@ -21,28 +21,30 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: _SupabaseAuthNotifier(),
     redirect: (context, state) {
       final uri = Uri.base;
-      final hasOAuthParams =
-          uri.queryParameters.containsKey('access_token') ||
+      final hasOAuthParams = uri.queryParameters.containsKey('access_token') ||
           uri.queryParameters.containsKey('code');
       if (hasOAuthParams) return null;
 
       final session = supabase.auth.currentSession;
-      final isAuth  = session != null;
-      final loc     = state.matchedLocation;
+      final isAuth = session != null;
+      final loc = state.matchedLocation;
 
       if (loc == '/' || loc == '/onboarding') return null;
       if (!isAuth && loc != '/auth') return '/auth';
-      if (isAuth  && loc == '/auth') return '/home';
+      if (isAuth && loc == '/auth') return '/home';
       return null;
     },
     routes: [
       GoRoute(path: '/', builder: (_, __) => const SplashScreen()),
-      GoRoute(path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
+      GoRoute(
+          path: '/onboarding', builder: (_, __) => const OnboardingScreen()),
       GoRoute(path: '/auth', builder: (_, __) => const AuthScreen()),
       GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
-      
+
       // Coopératives
-      GoRoute(path: '/cooperatives', builder: (_, __) => const CooperativeListScreen()),
+      GoRoute(
+          path: '/cooperatives',
+          builder: (_, __) => const CooperativeListScreen()),
       GoRoute(
         path: '/cooperative/create',
         builder: (_, __) => const CreateCooperativeScreen(),
@@ -55,10 +57,22 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
 
       // Autres
-      GoRoute(path: '/contribute', builder: (_, __) => const ContributeScreen()),
+      GoRoute(
+        path: '/contribute/:id',
+        builder: (_, state) => ContributeScreen(
+          coopId: state.pathParameters['id']!,
+        ),
+      ),
       GoRoute(path: '/vote', builder: (_, __) => const VoteScreen()),
       GoRoute(path: '/report', builder: (_, __) => const ReportScreen()),
       GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
+
+      GoRoute(
+        path: '/contribute/:coopId',
+        builder: (_, state) => ContributeScreen(
+          coopId: state.pathParameters['coopId']!,
+        ),
+      ),
     ],
   );
 });
@@ -67,7 +81,7 @@ class _SupabaseAuthNotifier extends ChangeNotifier {
   _SupabaseAuthNotifier() {
     supabase.auth.onAuthStateChange.listen((data) {
       final event = data.event;
-      if (event == AuthChangeEvent.signedIn  ||
+      if (event == AuthChangeEvent.signedIn ||
           event == AuthChangeEvent.signedOut ||
           event == AuthChangeEvent.tokenRefreshed) {
         notifyListeners();

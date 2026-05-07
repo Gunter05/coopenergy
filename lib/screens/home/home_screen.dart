@@ -6,13 +6,22 @@ import '../../core/theme.dart';
 import '../../services/auth_service.dart';
 import '../../services/cooperative_service.dart';
 import '../../models/cooperative.dart';
-
-class HomeScreen extends ConsumerWidget {
+import '../cooperative/cooperative_list_screen.dart';
+import '../report/report_screen.dart';
+import '../profile/profile_screen.dart';
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final user      = ref.watch(currentUserProvider);
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  int _currentIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(currentUserProvider);
     final coopsAsync = ref.watch(myCooperativesProvider);
     final statsAsync = ref.watch(dashboardStatsProvider);
     final activityAsync = ref.watch(recentActivityProvider);
@@ -21,11 +30,90 @@ class HomeScreen extends ConsumerWidget {
             ?.toString()
             .split(' ')
             .first ??
-        user?.email?.split(' @').first ??
+        user?.email?.split('@').first ??
         'là';
+
+    final List<Widget> _tabs = [
+      _buildHomeContent(context, firstName, coopsAsync, statsAsync, activityAsync),
+      const CooperativeListScreen(),
+      const ReportScreen(),
+      const ProfileScreen(),
+    ];
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _tabs,
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (index) => setState(() => _currentIndex = index),
+          type: BottomNavigationBarType.fixed,
+          backgroundColor: Colors.white,
+          selectedItemColor: primaryGreen,
+          unselectedItemColor: Colors.grey[400],
+          selectedFontSize: 12,
+          unselectedFontSize: 12,
+          elevation: 0,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home_rounded),
+              label: 'Accueil',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.groups_outlined),
+              activeIcon: Icon(Icons.groups_rounded),
+              label: 'Coops',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.assessment_outlined),
+              activeIcon: Icon(Icons.assessment_rounded),
+              label: 'Rapport',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person_outline_rounded),
+              activeIcon: Icon(Icons.person_rounded),
+              label: 'Profil',
+            ),
+          ],
+        ),
+      ),
+      // FAB — Créer une coopérative (uniquement sur l'onglet Home)
+      floatingActionButton: _currentIndex == 0 
+        ? FloatingActionButton.extended(
+            onPressed: () => context.push('/cooperative/create'),
+            backgroundColor: primaryGreen,
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: const Text(
+              'Nouvelle',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          )
+        : null,
+    );
+  }
+
+  Widget _buildHomeContent(
+    BuildContext context, 
+    String firstName,
+    AsyncValue<List<Cooperative>> coopsAsync,
+    AsyncValue<Map<String, dynamic>> statsAsync,
+    AsyncValue<List<Map<String, dynamic>>> activityAsync,
+  ) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: _buildAppBar(context, ref),
       body: RefreshIndicator(
         color: primaryGreen,
@@ -40,24 +128,16 @@ class HomeScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
-              // Salutation
               _buildGreeting(firstName),
               const SizedBox(height: 20),
-
-              // KPI Stats
               statsAsync.when(
-                data:    (stats) => _buildStatsRow(stats),
+                data: (stats) => _buildStatsRow(stats),
                 loading: () => _buildStatsLoading(),
-                error:   (_, __) => const SizedBox(),
+                error: (_, __) => const SizedBox(),
               ),
               const SizedBox(height: 24),
-
-              // Boutons rapides
               _buildQuickActions(context),
               const SizedBox(height: 24),
-
-              // Mes coopératives
               _buildSectionTitle('Mes coopératives'),
               const SizedBox(height: 12),
               coopsAsync.when(
@@ -68,32 +148,18 @@ class HomeScreen extends ConsumerWidget {
                 error: (e, _) => _buildError(e.toString()),
               ),
               const SizedBox(height: 24),
-
-              // Activité récente
               _buildSectionTitle('Activité récente'),
               const SizedBox(height: 12),
               activityAsync.when(
-                data:    (activity) => activity.isEmpty
+                data: (activity) => activity.isEmpty
                     ? _buildEmptyActivity()
                     : _buildActivityList(activity),
                 loading: () => _buildActivityLoading(),
-                error:   (_, __) => const SizedBox(),
+                error: (_, __) => const SizedBox(),
               ),
-
               const SizedBox(height: 80),
             ],
           ),
-        ),
-      ),
-
-      // FAB — Créer une coopérative
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/cooperative/create'),
-        backgroundColor: primaryGreen,
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text(
-          'Nouvelle coopérative',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -254,7 +320,7 @@ class HomeScreen extends ConsumerWidget {
         _buildActionChip(
           icon: Icons.add_card,
           label: 'Cotiser',
-          onTap: () => context.push('/contribute'),
+          onTap: () => context.push('/cooperatives'),
         ),
         const SizedBox(width: 10),
         _buildActionChip(

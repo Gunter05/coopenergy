@@ -79,6 +79,17 @@ class CooperativeService {
     };
   }
 
+  // Membres d'une coopérative
+  Future<List<Map<String, dynamic>>> fetchMembers(String coopId) async {
+    final data = await supabase
+        .from('cooperative_members')
+        .select(
+            'role, joined_at, profiles(id, display_name, email, phone, avatar_url)')
+        .eq('cooperative_id', coopId)
+        .order('joined_at');
+    return List<Map<String, dynamic>>.from(data as List);
+  }
+
   // ── Activité récente ─────────────────────────────────
 
   Future<List<Map<String, dynamic>>> fetchRecentActivity() async {
@@ -93,6 +104,54 @@ class CooperativeService {
         .limit(5);
 
     return List<Map<String, dynamic>>.from(data as List);
+  }
+
+  // ── Audit Blockchain ─────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> fetchDetailedAuditLog() async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return [];
+
+    // Récupérer les cotisations avec hash
+    final contribs = await supabase
+        .from('contributions')
+        .select('id, amount, created_at, tx_hash, cooperatives(name)')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false);
+
+    // Récupérer les votes avec hash
+    final votes = await supabase
+        .from('votes')
+        .select('id, choice, created_at, tx_hash, proposals(title)')
+        .eq('user_id', userId)
+        .order('created_at', ascending: false);
+
+    final List<Map<String, dynamic>> log = [];
+
+    for (final c in contribs as List) {
+      log.add({
+        'type': 'Cotisation',
+        'title': 'Apport à ${c['cooperatives']?['name'] ?? 'Coopérative'}',
+        'amount': '+${(c['amount'] as num).toInt()} F',
+        'date': DateTime.parse(c['created_at']),
+        'hash': c['tx_hash'],
+        'is_positive': true,
+      });
+    }
+
+    for (final v in votes as List) {
+      log.add({
+        'type': 'Vote',
+        'title': 'Sujet : ${v['proposals']?['title'] ?? 'Proposition'}',
+        'amount': v['choice'].toString().toUpperCase(),
+        'date': DateTime.parse(v['created_at']),
+        'hash': v['tx_hash'],
+        'is_positive': null,
+      });
+    }
+
+    log.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+    return log;
   }
 
   Future<String> createCooperative({
@@ -160,4 +219,14 @@ final dashboardStatsProvider = FutureProvider<Map<String, dynamic>>((ref) {
 final recentActivityProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) {
   return ref.watch(cooperativeServiceProvider).fetchRecentActivity();
+});
+
+final detailedAuditLogProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) {
+  return ref.watch(cooperativeServiceProvider).fetchDetailedAuditLog();
+});
+
+final cooperativeProvider =
+    FutureProvider.family<Cooperative?, String>((ref, id) {
+  return ref.watch(cooperativeServiceProvider).fetchById(id);
 });

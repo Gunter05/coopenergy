@@ -1,118 +1,265 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme.dart';
+import '../../services/cooperative_service.dart';
+import '../../services/blockchain_service.dart';
 
-class ReportScreen extends StatelessWidget {
+class ReportScreen extends ConsumerWidget {
   const ReportScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final statsAsync = ref.watch(dashboardStatsProvider);
+    final auditAsync = ref.watch(detailedAuditLogProvider);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Rapports & Transparence')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Résumé Financier', style: Theme.of(context).textTheme.displaySmall),
-            const SizedBox(height: 16),
-            _buildFinancialGrid(context),
-            const SizedBox(height: 32),
-            Text('Audit Blockchain', style: Theme.of(context).textTheme.displaySmall),
-            const SizedBox(height: 16),
-            _buildAuditList(context),
-            const SizedBox(height: 32),
-            _buildExportSection(context),
-          ],
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        backgroundColor: primaryGreen,
+        foregroundColor: Colors.white,
+        title: const Text(
+          'Rapport & Transparence',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(dashboardStatsProvider);
+          ref.invalidate(detailedAuditLogProvider);
+        },
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              
+              // Résumé financier
+              const _SectionTitle(title: 'Résumé Financier'),
+              const SizedBox(height: 12),
+              statsAsync.when(
+                data: (stats) => _buildFinancialGrid(context, stats),
+                loading: () => const _LoadingPlaceholder(height: 160),
+                error: (e, _) => Text('Erreur : $e'),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Audit Blockchain
+              const _SectionTitle(title: 'Audit Blockchain (Polygon)'),
+              const SizedBox(height: 12),
+              auditAsync.when(
+                data: (log) => log.isEmpty
+                    ? _buildEmptyAudit()
+                    : _buildAuditList(context, ref, log),
+                loading: () => const _LoadingPlaceholder(height: 300),
+                error: (e, _) => Text('Erreur : $e'),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Export
+              _buildExportCard(),
+              
+              const SizedBox(height: 40),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildFinancialGrid(BuildContext context) {
+  Widget _buildFinancialGrid(BuildContext context, Map<String, dynamic> stats) {
+    final fmt = NumberFormat('#,##0', 'fr_FR');
+    final total = (stats['total_contributed'] ?? 0);
+    
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 16,
-      crossAxisSpacing: 16,
-      childAspectRatio: 1.5,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.4,
       children: [
-        _StatCard(label: 'Total Collecté', value: '1.2M XOF', color: AppColors.primary),
-        _StatCard(label: 'Total Engagé', value: '450K XOF', color: AppColors.secondary),
-        _StatCard(label: 'Solde Restant', value: '750K XOF', color: AppColors.accent),
-        _StatCard(label: 'Rendement Est.', value: '+8%', color: AppColors.success),
+        _StatCard(
+          label: 'Total Cotisé',
+          value: '${fmt.format(total)} F',
+          icon: Icons.savings_outlined,
+          color: primaryGreen,
+        ),
+        _StatCard(
+          label: 'Projets Actifs',
+          value: '${stats['active_coops'] ?? 0}',
+          icon: Icons.solar_power_outlined,
+          color: const Color(0xFF0D47A1),
+        ),
+        _StatCard(
+          label: 'Votes Ouverts',
+          value: '${stats['pending_votes'] ?? 0}',
+          icon: Icons.how_to_vote_outlined,
+          color: const Color(0xFFE65100),
+        ),
+        _StatCard(
+          label: 'Score Impact',
+          value: 'A+',
+          icon: Icons.auto_awesome,
+          color: Colors.purple,
+        ),
       ],
     );
   }
 
-  Widget _buildAuditList(BuildContext context) {
-    final transactions = [
-      {'id': '0x7a2...4f9', 'type': 'Cotisation', 'amount': '+5 000 XOF', 'status': 'Confirmé'},
-      {'id': '0x3b1...8e2', 'type': 'Achat Matériel', 'amount': '-250 000 XOF', 'status': 'Confirmé'},
-      {'id': '0x9c4...1d5', 'type': 'Vote Validé', 'amount': 'N/A', 'status': 'Confirmé'},
-    ];
-
+  Widget _buildAuditList(BuildContext context, WidgetRef ref, List<Map<String, dynamic>> log) {
     return Column(
-      children: transactions.map((tx) {
+      children: log.map((item) {
+        final date = item['date'] as DateTime;
+        final hash = item['hash'] as String?;
+        final shortHash = hash != null 
+          ? '${hash.substring(0, 8)}...${hash.substring(hash.length - 6)}'
+          : 'En attente...';
+
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.surface),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.withOpacity(0.1)),
           ),
-          child: Row(
-            children: [
-              const Icon(Icons.link_rounded, color: AppColors.primary),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(tx['type']!, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text(tx['id']!, style: Theme.of(context).textTheme.labelSmall),
-                  ],
-                ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: item['type'] == 'Cotisation' 
+                  ? lightGreen 
+                  : const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(12),
               ),
-              Text(
-                tx['amount']!,
-                style: TextStyle(
-                  color: tx['amount']!.startsWith('+') ? AppColors.success : AppColors.textMain,
-                  fontWeight: FontWeight.bold,
-                ),
+              child: Icon(
+                item['type'] == 'Cotisation' 
+                  ? Icons.add_card 
+                  : Icons.how_to_vote,
+                color: item['type'] == 'Cotisation' 
+                  ? primaryGreen 
+                  : const Color(0xFF1976D2),
+                size: 20,
               ),
-            ],
+            ),
+            title: Text(
+              item['title'],
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  DateFormat('d MMM yyyy · HH:mm', 'fr_FR').format(date),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                ),
+                if (hash != null)
+                  Text(
+                    'TX: $shortHash',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      color: primaryGreen,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+              ],
+            ),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  item['amount'],
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: item['is_positive'] == true 
+                      ? primaryGreen 
+                      : darkText,
+                  ),
+                ),
+                if (hash != null)
+                  InkWell(
+                    onTap: () async {
+                      final url = Uri.parse(
+                        ref.read(blockchainServiceProvider).explorerUrl(hash)
+                      );
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalApplication);
+                      }
+                    },
+                    child: const Icon(Icons.open_in_new, size: 14, color: Colors.grey),
+                  ),
+              ],
+            ),
           ),
         );
       }).toList(),
     );
   }
 
-  Widget _buildExportSection(BuildContext context) {
+  Widget _buildEmptyAudit() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.history_toggle_off, size: 48, color: Colors.grey[300]),
+          const SizedBox(height: 12),
+          const Text('Aucun audit disponible', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text('Tes transactions blockchain apparaîtront ici.', 
+               style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExportCard() {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.secondary.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.secondary.withOpacity(0.1)),
+        gradient: LinearGradient(
+          colors: [primaryGreen, primaryGreen.withOpacity(0.8)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: primaryGreen.withOpacity(0.3),
+            blurRadius: 10, offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          const Icon(Icons.picture_as_pdf_rounded, color: AppColors.secondary, size: 40),
+          const Icon(Icons.picture_as_pdf, color: Colors.white, size: 40),
           const SizedBox(width: 16),
-          Expanded(
+          const Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Rapport Complet PDF', style: TextStyle(fontWeight: FontWeight.bold)),
-                Text('Janvier 2026 • 2.4 MB', style: Theme.of(context).textTheme.labelSmall),
+                Text(
+                  'Rapport d\'impact PDF',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                Text(
+                  'Génère un rapport certifié de tes investissements.',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
               ],
             ),
           ),
           IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.download_for_offline_rounded, color: AppColors.secondary),
+            onPressed: () {}, // À implémenter plus tard
+            icon: const Icon(Icons.download_for_offline, color: Colors.white, size: 28),
           ),
         ],
       ),
@@ -120,30 +267,77 @@ class ReportScreen extends StatelessWidget {
   }
 }
 
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  const _SectionTitle({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: darkText),
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
+  final IconData icon;
   final Color color;
 
-  const _StatCard({required this.label, required this.value, required this.color});
+  const _StatCard({
+    required this.label, 
+    required this.value, 
+    required this.icon, 
+    required this.color
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color)),
-          Text(value, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 18)),
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+          ),
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          ),
         ],
       ),
+    );
+  }
+}
+
+class _LoadingPlaceholder extends StatelessWidget {
+  final double height;
+  const _LoadingPlaceholder({required this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        color: Colors.grey[200],
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Center(child: CircularProgressIndicator(color: primaryGreen)),
     );
   }
 }
